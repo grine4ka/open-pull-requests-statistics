@@ -1,0 +1,38 @@
+name: Getting statistics on repo
+
+on:
+  workflow_dispatch:
+  schedule:
+    # * is a special character in YAML so you have to quote this string
+    - cron: '0 0 * * *'
+
+jobs:
+  pr-statistics:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+      contents: write
+    steps:
+      - name: Install InfluxDB CLI
+        run: |
+          curl -o influxdb2-cli.tar.gz https://dl.influxdata.com/influxdb/releases/influxdb2-client-2.7.3-linux-amd64.tar.gz
+          mkdir influx && tar xvzf influxdb2-cli.tar.gz -C influx/
+          sudo cp influx/influx /usr/local/bin/
+          rm -r influx
+          influx version
+      - uses: actions/checkout@v3
+      - name: Get PRs and push to InfluxDB
+        shell: bash
+        run: |
+          ./get_prs.sh
+          
+          influx bucket delete --name pr_statistics
+          influx bucket create --name pr_statistics --retention 30d
+          influx write -b pr_statistics -f prs.csv \
+              --header "#constant measurement,pull_requests" \
+              --header "#datatype long,string,string,dateTime:RFC3339"
+        env:
+          INFLUX_HOST: ${{ vars.INFLUX_HOST }}
+          INFLUX_ORG: ${{ vars.INFLUX_ORG }}
+          INFLUX_TOKEN: ${{ secrets.INFLUX_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
